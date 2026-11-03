@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:accrete:schema:metadata-bundle:1",
+  "title": "ACCRETE portable metadata bundle",
+  "type": "object",
+  "required": [
+    "format",
+    "type",
+    "project_id",
+    "objects"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "type": {
+      "const": "accrete-metadata"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exported_at": {
+      "type": "string"
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "content"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "model",
+              "iteration",
+              "tool",
+              "data",
+              "result",
+              "memory"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180,
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "not": {
+              "enum": [
+                ".",
+                ".."
+              ]
+            }
+          },
+          "path": {
+            "type": "string",
+            "description": "Memory-relative original path. JSON objects use their managed object directory on import."
+          },
+          "content": {
+            "type": "string",
+            "description": "Exact UTF-8 JSON or Markdown document content."
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional explicit local predecessor required for divergent replacement."
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

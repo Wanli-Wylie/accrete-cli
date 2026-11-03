@@ -1,0 +1,26 @@
+{
+  "name": "@accrete/cli",
+  "version": "0.1.0",
+  "description": "ACCRETE native object kernel and command-line interface",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "accrete": "bin/accrete.cjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES",
+    "licenses"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "optionalDependencies": {
+    "@accrete/kernel-linux-x64": "0.1.0",
+    "@accrete/kernel-linux-arm64": "0.1.0",
+    "@accrete/kernel-darwin-x64": "0.1.0",
+    "@accrete/kernel-darwin-arm64": "0.1.0"
+  }
+}

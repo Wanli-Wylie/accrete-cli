@@ -1,0 +1,9 @@
+{
+  "id": "example-analysis-tool",
+  "name": "residual-analysis",
+  "description": "Read the project capability's instructions to compare retained model outputs.",
+  "source": {
+    "mode": "live",
+    "path": "tools/residual-analysis"
+  }
+}

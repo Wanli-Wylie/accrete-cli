@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:accrete:schema:operation-input:1",
+  "title": "ACCRETE object creation input",
+  "description": "Input to model register, tool admit, data register, or result record. The native operation adds the envelope and validates kind-specific effects. Fields may be extended by the project.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "description": {},
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "format": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "model",
+        "tool",
+        "data",
+        "result"
+      ]
+    },
+    "project_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,6 @@
+/target/
+/dist/
+/local-install/
+*.tgz
+.DS_Store
+

@@ -1,0 +1,21 @@
+{
+  "id": "example-input",
+  "name": "forcing-2005",
+  "description": "Example of an external dataset description registered without transferring bytes.",
+  "content": {
+    "kind": "external",
+    "mode": "closed",
+    "edition": "2005"
+  },
+  "origin": {
+    "description": "Producer-supplied edition; checksum and provider version are not supplied in this example."
+  },
+  "locations": [
+    {
+      "name": "provider-reference",
+      "kind": "external",
+      "path": "provider:forcing/2005",
+      "availability": "observed"
+    }
+  ]
+}

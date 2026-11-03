@@ -1,0 +1,23 @@
+{
+  "name": "create-accrete",
+  "version": "0.1.0",
+  "description": "Initialize an ACCRETE project with the native kernel",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "create-accrete": "bin/create-accrete.cjs"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES",
+    "licenses"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@accrete/cli": "0.1.0"
+  }
+}

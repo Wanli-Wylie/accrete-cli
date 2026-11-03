@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:accrete:schema:document:1",
+  "title": "ACCRETE format-1 managed document envelope",
+  "description": "Common persistent envelope. JSON documents and Memory frontmatter use this structure. Operation-specific fields remain open and are interpreted by the native Kernel.",
+  "type": "object",
+  "required": [
+    "format",
+    "kind",
+    "id",
+    "project_id"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "model",
+        "iteration",
+        "tool",
+        "data",
+        "result",
+        "memory"
+      ]
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "description": "Publication/import time of JSON metadata; not inferred scientific execution time."
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "description": {},
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "authored_at": {
+      "type": "string",
+      "description": "Memory authored instant when known; legacy entries may omit it."
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "link": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "object_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

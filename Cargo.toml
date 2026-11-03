@@ -1,0 +1,37 @@
+[package]
+name = "accrete-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Native object kernel for sustained scientific and software work"
+license = "MIT"
+readme = "README.md"
+
+[lib]
+name = "accrete"
+path = "src/lib.rs"
+
+[[bin]]
+name = "accrete"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "=4.5.51", features = ["derive", "env"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.145", features = ["arbitrary_precision"] }
+toml = "=0.9.8"
+uuid = { version = "=1.18.1", features = ["v4"] }
+chrono = { version = "=0.4.42", features = ["serde"] }
+chrono-tz = "=0.10.4"
+sha2 = "=0.10.9"
+tempfile = "=3.23.0"
+fs2 = "=0.4.3"
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
+walkdir = "=2.5.0"
+serde_yaml = "=0.9.34"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
+

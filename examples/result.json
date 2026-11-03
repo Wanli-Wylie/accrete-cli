@@ -1,0 +1,32 @@
+{
+  "id": "example-result",
+  "name": "comparison-note",
+  "activity": "comparison",
+  "description": "Illustrative activity input. Replace these associations with the objects actually used.",
+  "models": [
+    {
+      "model_id": "example-model",
+      "role": "target"
+    }
+  ],
+  "tools": [
+    {
+      "tool_id": "example-analysis-tool"
+    }
+  ],
+  "inputs": [
+    {
+      "data_id": "example-input",
+      "role": "input"
+    }
+  ],
+  "outputs": [],
+  "observations": [
+    {
+      "text": "Execution revision and runtime measurements are deliberately unspecified in this example."
+    }
+  ],
+  "extensions": {
+    "purpose": "CLI usage example"
+  }
+}

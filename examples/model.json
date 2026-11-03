@@ -1,0 +1,12 @@
+{
+  "id": "example-model",
+  "name": "example-model",
+  "description": "A computational program registered independently of its host checkout.",
+  "repository": {
+    "locator": "../numerical-model",
+    "arrangement": "external"
+  },
+  "source_scope": [
+    "src"
+  ]
+}

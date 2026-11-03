@@ -1,0 +1,51 @@
+name: Release artifacts
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+# Build jobs have no npm credentials and never publish packages. The owner chooses
+# package scope and public visibility, then follows docs/distribution.md.
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    env:
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CC_aarch64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install release toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal --target ${{ matrix.target }}
+      - name: Install musl tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo test --locked --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: node scripts/package-release.mjs --binary target/${{ matrix.target }}/release/accrete --target ${{ matrix.target }} --out dist/${{ matrix.target }}
+      - run: node scripts/install-local.mjs dist/${{ matrix.target }} '${{ runner.temp }}/accrete-install'
+      - run: "'${{ runner.temp }}/accrete-install/node_modules/.bin/accrete' --version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/${{ matrix.target }}/*.tgz
+            dist/${{ matrix.target }}/*.tar.gz
+            dist/${{ matrix.target }}/release-manifest.json
+            dist/${{ matrix.target }}/SHA256SUMS
+          if-no-files-found: error

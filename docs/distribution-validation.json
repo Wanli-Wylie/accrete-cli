@@ -1,0 +1,59 @@
+{
+  "checked_at": "2026-11-03T13:51:02.388Z",
+  "release": "0.1.0",
+  "target": "x86_64-unknown-linux-musl",
+  "native_version": "accrete 0.1.0",
+  "file_info": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, BuildID[sha1]=1c1b8369fa57557e28e9c9d69aed2f0c33f42f8f, stripped",
+  "binary_sha256": "e49f7277a3e289edcab255014d0ad2dcd2998beb6311931e08a8a6eec816683b",
+  "package_install": {
+    "offline": true,
+    "lifecycle_scripts": false,
+    "fresh_prefix": true,
+    "installed_packages": 3,
+    "completed": true
+  },
+  "workflow": {
+    "initializer": {
+      "passed": true,
+      "created": true,
+      "timezone": "America/Los_Angeles",
+      "project_path_contains_spaces": true
+    },
+    "result_record": {
+      "passed": true,
+      "committed": true,
+      "index_pending": false
+    },
+    "memory_append": {
+      "passed": true,
+      "committed": true,
+      "index_pending": false,
+      "associated_result": "distribution-result"
+    },
+    "native_and_npm_payload_identical": true,
+    "artifact_checksums_match_manifest": true
+  },
+  "artifacts": [
+    {
+      "filename": "dist/linux-x64-0.1.0/accrete-kernel-linux-x64-0.1.0.tgz",
+      "sha256": "221a1b7b2508ba72cfe4d2999b689bc88d496068696081ff88de9a3ad75f6130",
+      "bytes": 2577295
+    },
+    {
+      "filename": "dist/linux-x64-0.1.0/accrete-cli-0.1.0.tgz",
+      "sha256": "67c79d236d3677b124b9d5af5379da9c2271cd66f13f53118e870cda9cf143b4",
+      "bytes": 64185
+    },
+    {
+      "filename": "dist/linux-x64-0.1.0/create-accrete-0.1.0.tgz",
+      "sha256": "ef1948b4b7b42ace8cbfade7f54fda43d133aa1ae889811ae2a056ea953313d0",
+      "bytes": 62671
+    },
+    {
+      "filename": "dist/linux-x64-0.1.0/accrete-0.1.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "c78692ae253a4210acf9fcd7360cc2d85b34793588a263f6e15f97af80722cd7",
+      "bytes": 2548917
+    }
+  ],
+  "other_platforms": "CI build configuration is supplied; macOS and ARM64 binaries were not built or exercised in this environment."
+}
