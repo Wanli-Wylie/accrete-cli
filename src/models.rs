@@ -15,8 +15,30 @@ pub fn register(project: &Project, mut payload: Value, checkout: Option<&Path>) 
         .as_object_mut()
         .ok_or_else(|| Error::new("invalid", "Model input must be a JSON object"))?;
     obj.entry("status").or_insert(json!("active"));
+    // repository.checkout is a host path: it binds locally and never reaches the descriptor.
+    let declared = match obj
+        .get_mut("repository")
+        .and_then(Value::as_object_mut)
+        .and_then(|repository| repository.remove("checkout"))
+    {
+        None => None,
+        Some(Value::String(path)) => Some(PathBuf::from(path)),
+        Some(_) => {
+            return Err(Error::new(
+                "invalid",
+                "repository.checkout must be a string",
+            ));
+        }
+    };
+    if obj
+        .get("repository")
+        .and_then(Value::as_object)
+        .is_some_and(|repository| repository.is_empty())
+    {
+        obj.remove("repository");
+    }
     let mut binding = None;
-    if let Some(path) = checkout {
+    if let Some(path) = checkout.or(declared.as_deref()) {
         let checkout = canonical_future(&project.resolve(path))?;
         let scopes = obj
             .get("source_scope")
@@ -109,8 +131,13 @@ pub struct OpenOptions {
     pub worktree: Option<PathBuf>,
     pub start: Option<String>,
     pub existing: bool,
+    /// Other fields of the input document, kept on the descriptor.
+    pub extensions: Value,
 }
 pub fn iteration_open(project: &Project, model: &str, options: OpenOptions) -> Result<Value> {
+    if options.existing && options.worktree.is_none() {
+        return Err(Error::new("invalid", "existing requires a worktree"));
+    }
     let store = Store::new(project);
     let model = store.read("model", model)?;
     let model_id = model.doc["id"].as_str().unwrap();
@@ -121,6 +148,13 @@ pub fn iteration_open(project: &Project, model: &str, options: OpenOptions) -> R
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     store::valid_id(&id)?;
     let mut doc = json!({"id":id,"model_id":model_id,"name":options.name,"purpose":options.purpose,"starting_revision":start,"status":"open"});
+    if let Some(extensions) = options.extensions.as_object() {
+        for (key, value) in extensions {
+            if doc.get(key).is_none() {
+                doc[key.as_str()] = value.clone();
+            }
+        }
+    }
     if let Some(branch) = &options.branch {
         git::checked(&checkout, ["check-ref-format", "--branch", branch])?;
         doc["branch"] = json!(branch);
@@ -206,22 +240,56 @@ pub fn iteration_open(project: &Project, model: &str, options: OpenOptions) -> R
 pub fn iteration_close(
     project: &Project,
     selector: &str,
-    outcome: &str,
-    commit: Option<&str>,
+    mut input: Value,
     expect: &str,
 ) -> Result<Value> {
-    let mut patch = json!({"status":"closed","outcome":outcome,"closed_at":store::now()});
-    if let Some(commit) = commit {
-        patch["retained_revision"] = json!(commit);
+    if input
+        .get("outcome")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        return Err(Error::new(
+            "invalid",
+            "closing an iteration requires an outcome, from --outcome or --from",
+        ));
     }
-    let mut response = Store::new(project).amend("iteration", selector, patch, expect)?;
-    if let Some(commit) = commit {
-        let d = Store::new(project).read("iteration", selector)?;
-        let retention = checkout(project, d.doc["model_id"].as_str().unwrap_or(""))
-            .and_then(|path| git::retain(&path, d.doc["id"].as_str().unwrap(), commit));
-        match retention {
-            Ok(reference) => response["retention_ref"] = json!(reference),
-            Err(e) => response["retention_warning"] = json!(e.to_string()),
+    if input.get("summary").is_some_and(|v| !v.is_string()) {
+        return Err(Error::new("invalid", "summary must be a string"));
+    }
+    let commits: Vec<String> = match input.get("commits") {
+        None => Vec::new(),
+        Some(value) => value
+            .as_array()
+            .filter(|items| items.iter().all(Value::is_string))
+            .ok_or_else(|| Error::new("invalid", "commits must be an array of strings"))?
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_owned))
+            .collect(),
+    };
+    input["status"] = json!("closed");
+    input["closed_at"] = json!(store::now());
+    let mut response = Store::new(project).amend("iteration", selector, input, expect)?;
+    if !commits.is_empty() {
+        let iteration = Store::new(project).read("iteration", selector)?;
+        let id = iteration.doc["id"].as_str().unwrap();
+        let repository = checkout(project, iteration.doc["model_id"].as_str().unwrap_or(""));
+        let mut retained = Vec::new();
+        let mut warnings = Vec::new();
+        for commit in &commits {
+            let outcome = match &repository {
+                Ok(path) => git::retain(path, id, commit).map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            };
+            match outcome {
+                Ok(reference) => retained.push(json!({"commit":commit,"ref":reference})),
+                Err(message) => warnings.push(json!({"commit":commit,"message":message})),
+            }
+        }
+        if !retained.is_empty() {
+            response["retained_refs"] = json!(retained);
+        }
+        if !warnings.is_empty() {
+            response["retention_warnings"] = json!(warnings);
         }
     }
     Ok(response)

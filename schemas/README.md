@@ -4,8 +4,6 @@
   including Memory frontmatter after parsing.
 - `operation-input.schema.json` describes an open creation-input object before
   the Kernel adds its envelope.
-- `template-manifest.schema.json` describes `accrete-template.json`, the explicit
-  integration boundary with the independent template repository.
 - `metadata-bundle.schema.json` describes portable metadata export/import.
 
 The schemas use JSON Schema draft 2020-12. Project extension fields remain open.

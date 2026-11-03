@@ -81,6 +81,16 @@ pub fn create_dirs(path: &Path) -> std::io::Result<()> {
 /// Writes a flushed temporary sibling, then atomically publishes it.
 /// A directory sync failure after publication is an explicit visible outcome.
 pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<Publication> {
+    atomic_write_mode(path, bytes, replace, None)
+}
+
+/// `atomic_write` with Unix permissions applied before the file becomes visible.
+pub fn atomic_write_mode(
+    path: &Path,
+    bytes: &[u8],
+    replace: bool,
+    mode: Option<u32>,
+) -> Result<Publication> {
     let parent = path
         .parent()
         .ok_or_else(|| Error::new("invalid", "Publication needs a parent directory"))?;
@@ -97,6 +107,14 @@ pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<Publicat
     }
     let mut temp = NamedTempFile::new_in(parent)?;
     temp.write_all(bytes)?;
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
     temp.as_file().sync_all()?;
     if replace {
         temp.persist(path).map_err(|e| Error::from(e.error))?;

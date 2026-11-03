@@ -1,19 +1,20 @@
 # Explicit migration from the original scaffold
 
-`accrete migrate` imports the small metadata produced by the supplied Python
-scaffold. It preserves the existing computational content, source trees,
+`accrete migrate --from LEGACY` imports the small metadata produced by the supplied Python
+scaffold. `accrete migrate` without `--from` handles persisted format changes; format 1 is the
+only one in existence, so it reports that the project is current and changes nothing. It preserves the existing computational content, source trees,
 archives, original Results, and dated prose. Source files are never executed to
 infer their behavior or placement.
 
-Initialize the destination project first. For an in-place adoption:
+The destination Workspace must exist first. For an in-place adoption:
 
 ```sh
-accrete init .
-accrete migrate --from . --dry-run
-accrete migrate --from .
+npx accrete-kit@latest create .
+.accrete/bin/accrete migrate --from . --dry-run
+.accrete/bin/accrete migrate --from .
 ```
 
-Or point an initialized project at a separate legacy tree:
+Or point an existing Workspace at a separate legacy tree:
 
 ```sh
 accrete --project /work/new-project migrate --from /work/legacy-project --dry-run
@@ -115,7 +116,7 @@ an Agent can adapt the actual callers:
 - Data registration leaves bytes in place; materialization is explicit.
 - `index refresh` builds the projection; ordinary SQLite reads query it.
 
-The `accrete-template` repository owns foundational guidance. Apply its assets
-through the documented template interface separately from metadata conversion.
-A migration does not overwrite `AGENTS.md`, `CLAUDE.md`, scientific code, Tool
+`npx accrete-kit@latest create` installs foundational guidance, separately from metadata conversion.
+Existing root instructions keep their content and gain a managed block; other differing
+files are preserved with a candidate. A migration does not overwrite `AGENTS.md`, `CLAUDE.md`, scientific code, Tool
 sources, or existing Skill exposure directories.

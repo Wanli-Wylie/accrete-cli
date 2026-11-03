@@ -39,20 +39,24 @@ jobs:
         run: cargo test --locked --target ${{ matrix.target }}
       - name: Release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: Create registry-contained packages and native archive
+      - name: Create the native archive
         run: node scripts/package-release.mjs --binary target/${{ matrix.target }}/release/accrete --target ${{ matrix.target }} --out dist/${{ matrix.target }}
-      - name: Offline install with scripts disabled
-        run: node scripts/install-local.mjs dist/${{ matrix.target }} '${{ runner.temp }}/accrete-install'
-      - name: Invoke installed kernel
+      - name: Run the archived binary in a Workspace holding only the marker
+        env:
+          ACCRETE_STATE_DIR: ${{ runner.temp }}/accrete-state
         run: |
-          '${{ runner.temp }}/accrete-install/node_modules/.bin/accrete' --version
-          '${{ runner.temp }}/accrete-install/node_modules/.bin/accrete' init '${{ runner.temp }}/accrete-example'
+          workspace='${{ runner.temp }}/accrete-example'
+          mkdir -p "$workspace/.accrete/bin"
+          printf 'format = 1\nproject_id = "ci-workspace"\n' > "$workspace/.accrete/project.toml"
+          tar -xzf dist/${{ matrix.target }}/accrete-*-${{ matrix.target }}.tar.gz -C "$workspace/.accrete/bin" --strip-components=1
+          cd "$workspace"
+          .accrete/bin/accrete --version
+          printf '{"id":"ci-result"}\n' | .accrete/bin/accrete --json result record --from -
+          .accrete/bin/accrete --json index refresh
       - uses: actions/upload-artifact@v4
         with:
           name: accrete-${{ matrix.target }}
           path: |
-            dist/${{ matrix.target }}/*.tgz
             dist/${{ matrix.target }}/*.tar.gz
-            dist/${{ matrix.target }}/release-manifest.json
             dist/${{ matrix.target }}/SHA256SUMS
           if-no-files-found: error

@@ -394,7 +394,7 @@ pub fn expose(
         json!({"object_id":id,"committed":true,"exposed":true,"host":host,"path":destination,"source":source,"mode":mode}),
     )
 }
-pub fn refresh(project: &Project, selector: &str) -> Result<Value> {
+pub fn refresh(project: &Project, selector: &str, agent: Option<&str>) -> Result<Value> {
     let tool = Store::new(project).read("tool", selector)?;
     let id = tool.doc["id"].as_str().unwrap();
     let inv = inventory(project, id)?;
@@ -403,6 +403,9 @@ pub fn refresh(project: &Project, selector: &str) -> Result<Value> {
         return remove_exposures(project, id);
     }
     for e in inv["exposures"].as_array().unwrap() {
+        if agent.is_some_and(|agent| e["host"] != agent) {
+            continue;
+        }
         match expose(
             project,
             id,
@@ -456,13 +459,8 @@ fn remove_exposures(project: &Project, id: &str) -> Result<Value> {
         json!({"object_id":id,"removed":removed,"pending":pending,"exposure_pending":!pending.is_empty()}),
     )
 }
-pub fn retire(project: &Project, selector: &str, expect: &str) -> Result<Value> {
-    let mut response = Store::new(project).amend(
-        "tool",
-        selector,
-        json!({"status":"retired","retired_at":store::now()}),
-        expect,
-    )?;
+pub fn retire(project: &Project, selector: &str, patch: Value, expect: &str) -> Result<Value> {
+    let mut response = Store::new(project).amend("tool", selector, patch, expect)?;
     let id = response["object_id"].as_str().unwrap();
     match remove_exposures(project, id) {
         Ok(v) => response["exposures"] = v,

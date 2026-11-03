@@ -6,6 +6,11 @@ The Kernel selects the project from `--project PATH`, then `ACCRETE_PROJECT`,
 then the closest ancestor containing `.accrete/project.toml`. An explicit
 selection must name a project root. There is no global project registry.
 
+The Kernel reads the shared marker and never creates it; `npx accrete-kit@latest create` does.
+[workspace.md](workspace.md) states which fields it needs. The configured store
+directories are created on first use, and `locations.working.root` defaults to
+`.accrete/data`.
+
 Configuration merges in this order: distribution defaults, shared
 `.accrete/project.toml`, ignored `.accrete/local.toml`, and supported invocation
 overrides. Tables merge by key, arrays and scalar values replace. `project_id`
@@ -39,8 +44,8 @@ description = "Project-maintained solver environment"
 instructions = "tools/solver/references/environment.md"
 ```
 
-The UUID is illustrative. `accrete init` creates an independent identity;
-cloning preserves it. The current project format is 1. Unknown configuration
+The UUID is illustrative. `project_id` is any safe ID (1-180 ASCII letters, digits, `.`,
+`_`, `-`; not `.` or `..`), which the generator allocates; cloning preserves it. The current project format is 1. Unknown configuration
 sections are retained and available in `config resolve`.
 
 ```toml
@@ -88,7 +93,7 @@ for roots that do not yet exist using their nearest existing ancestors.
 | Argument/location | Relative path base |
 |---|---|
 | Project marker and configured `[paths]`, local bindings, local-state base | Selected project root |
-| `--project`, `init DIRECTORY`, template `--from` | Invoking working directory |
+| `--project` | Invoking working directory |
 | JSON/text input files (`--from`, `--text-file`, `--links-from`) | Invoking working directory; `-` reads stdin |
 | Model checkout/worktree, Tool source/export/exposure destination, Data `--path`, source capture `--to` | Selected project root |
 | Metadata `export --to` and `import --from` | Invoking working directory |
@@ -109,7 +114,6 @@ State-base precedence is `--state-dir`, `ACCRETE_STATE_DIR`,
 `[local_state].base`, `$XDG_STATE_HOME/accrete`, then
 `$HOME/.local/state/accrete`. Explicit invocation overrides apply to that
 invocation; use the same setting for subsequent writers or persist it locally.
-The initializer honors these overrides too.
 
 The selected base contains one subdirectory per SHA-256 metadata-view key:
 

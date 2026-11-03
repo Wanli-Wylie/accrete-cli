@@ -91,8 +91,9 @@ pub fn refresh_locked(project: &Project) -> Result<Value> {
     }
     let mut conn = Connection::open(&project.index_path)?;
     conn.busy_timeout(Duration::from_secs(5))?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // Between invocations the index is one closed file, which a read-only
+    // connection can open. A WAL database needs its -wal and -shm files recreated.
+    conn.pragma_update(None, "journal_mode", "DELETE")?;
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version != 0 && version != INDEX_FORMAT {
         return Err(Error::new(
@@ -146,10 +147,7 @@ pub fn refresh_locked(project: &Project) -> Result<Value> {
         let doc = &item.doc;
         let id = doc["id"].as_str().unwrap();
         let document = serde_json::to_string(doc)?;
-        let name = doc
-            .get("name")
-            .or_else(|| doc.get("title"))
-            .and_then(Value::as_str);
+        let name = first_str(doc, &["name", "title", "activity"]);
         let status = doc.get("status").and_then(Value::as_str);
         let project_id = doc["project_id"].as_str().unwrap();
         let path = item.path.to_string_lossy();

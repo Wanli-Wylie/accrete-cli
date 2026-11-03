@@ -1,12 +1,13 @@
-name: Release artifacts
+name: Release
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 permissions:
   contents: read
-# Build jobs have no npm credentials and never publish packages. The owner chooses
-# package scope and public visibility, then follows docs/distribution.md.
+# Only a version tag reaches the release job, the one job that can write. To resume a failed
+# release, re-run its failed jobs: the same artifacts are reused, missing assets are uploaded,
+# and an existing asset with different bytes fails the run. See docs/distribution.md.
 jobs:
   package:
     strategy:
@@ -38,14 +39,59 @@ jobs:
       - run: cargo test --locked --target ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }}
       - run: node scripts/package-release.mjs --binary target/${{ matrix.target }}/release/accrete --target ${{ matrix.target }} --out dist/${{ matrix.target }}
-      - run: node scripts/install-local.mjs dist/${{ matrix.target }} '${{ runner.temp }}/accrete-install'
-      - run: "'${{ runner.temp }}/accrete-install/node_modules/.bin/accrete' --version"
+      - name: Run the archived binary
+        run: |
+          mkdir -p '${{ runner.temp }}/archive'
+          tar -xzf dist/${{ matrix.target }}/accrete-*-${{ matrix.target }}.tar.gz -C '${{ runner.temp }}/archive' --strip-components=1
+          '${{ runner.temp }}/archive/accrete' --version
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}
           path: |
-            dist/${{ matrix.target }}/*.tgz
             dist/${{ matrix.target }}/*.tar.gz
-            dist/${{ matrix.target }}/release-manifest.json
             dist/${{ matrix.target }}/SHA256SUMS
           if-no-files-found: error
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+      - name: Assemble all four archives and one SHA256SUMS
+        run: |
+          mkdir upload
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+            (cd "artifacts/release-$target" && sha256sum --check SHA256SUMS)
+            # The name carries Cargo's version, so a tag naming another version stops here.
+            cp "artifacts/release-$target/accrete-${TAG#v}-$target.tar.gz" upload/
+          done
+          cat artifacts/*/SHA256SUMS | sort -k 2 > upload/SHA256SUMS
+      - name: Upload missing assets; refuse to replace different bytes
+        run: |
+          # A draft keeps a partial release from being downloaded.
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --verify-tag --draft --title "$TAG" --notes "ACCRETE Kernel ${TAG#v}"
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          mkdir remote
+          for asset in upload/*.tar.gz upload/SHA256SUMS; do
+            name=$(basename "$asset")
+            if printf '%s\n' "$existing" | grep -qxF "$name"; then
+              gh release download "$TAG" --pattern "$name" --dir remote
+              if ! cmp "remote/$name" "$asset"; then
+                echo "::error::$name is already on release $TAG with different bytes."
+                exit 1
+              fi
+              echo "Keep $name: already on the release."
+            else
+              gh release upload "$TAG" "$asset"
+            fi
+          done
+          gh release edit "$TAG" --draft=false

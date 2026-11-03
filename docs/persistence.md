@@ -93,7 +93,7 @@ Historical conversion can publish an envelope over an exact legacy predecessor a
 
 ## SQLite projection
 
-The index lives at the resolved host-local `index.sqlite` path; `accrete config resolve --json` reports its location. It uses bundled SQLite, WAL, a five-second busy timeout, and short write transactions. SQLite connections close when a CLI invocation exits. Do not share this WAL database between machines.
+The index lives at the resolved host-local `index.sqlite` path; `accrete config resolve --json` reports its location. It uses bundled SQLite, the rollback journal, a five-second busy timeout, and short write transactions. SQLite connections close when a CLI invocation exits, so between invocations the index is one closed file that `sqlite3 -readonly` can open. A reader can briefly get "database is locked" while a refresh commits; retry the read. Do not share this database between machines.
 
 A refresh reads a consistent Kernel-locked metadata snapshot, checks formats and unique IDs, then updates the existing database in one transaction. The previous complete projection remains available if snapshot parsing or the transaction fails. The implementation does not rename an open database file. The initial refresh limit is 100,000 managed documents across the view; it scans metadata only, independent of Data payload size.
 
@@ -125,7 +125,7 @@ SELECT id, json_extract(document, '$.measurements.runtime_seconds')
 FROM results;
 ```
 
-A Git merge or direct file edit can make the index stale. Its `refreshed_at` and indexed per-file revisions describe the last successful projection. Deleting the closed index and running `index refresh` rebuilds it. For a live snapshot, use SQLite's backup API or `VACUUM INTO`; copying only the main file of an active WAL database is not a defined snapshot operation.
+A Git merge or direct file edit can make the index stale. Its `refreshed_at` and indexed per-file revisions describe the last successful projection. Deleting the closed index and running `index refresh` rebuilds it. For a live snapshot, use SQLite's backup API or `VACUUM INTO`; copying the file while a refresh may be committing is not a defined snapshot operation.
 
 ## Portable exchange
 

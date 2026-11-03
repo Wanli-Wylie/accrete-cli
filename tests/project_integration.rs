@@ -1,184 +1,75 @@
-use accrete::{config::Project, project, store};
+//! How the Kernel reaches a Workspace it did not create.
+mod common;
+
+use accrete::{config::Project, store};
+use common::{MARKER, write_marker};
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
-use tempfile::TempDir;
 
-fn prepared() -> (TempDir, Project, TempDir) {
-    let root = tempfile::tempdir().unwrap();
-    let state = root.path().join("local-state");
-    project::init_with_context(
-        root.path(),
-        Some("Template project"),
-        "America/Los_Angeles",
-        None,
-        false,
-        None,
-        Some(&state),
-        Some("fixture"),
-    )
-    .unwrap();
-    let project = Project::discover(Some(root.path()), Some(&state), Some("fixture")).unwrap();
-    let template = tempfile::tempdir().unwrap();
-    (root, project, template)
-}
-
-fn snapshot(path: &Path, version: &str, body: &str) {
-    fs::create_dir_all(path.join("files")).unwrap();
-    fs::write(path.join("files/AGENTS.md"), body).unwrap();
-    fs::write(
-        path.join("accrete-template.json"),
-        serde_json::to_vec_pretty(&json!({
-            "format":1,"asset_version":version,
-            "requires":{"cli_min":"0.1.0","cli_max_exclusive":"0.2.0","project_format":1},
-            "files":[{"source":"files/AGENTS.md","destination":"AGENTS.md"}]
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+fn accrete() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_accrete"));
+    command.env_remove("ACCRETE_PROJECT");
+    command
 }
 
 #[test]
-fn installs_repeats_and_upgrades_owned_guidance() {
-    let (_root, project, template) = prepared();
-    snapshot(template.path(), "guidance-1", "# Original guidance\n");
-    let preview = project::upgrade(&project, template.path(), true).unwrap();
-    assert_eq!(preview["files"][0]["status"], "create");
-    assert!(!project.root.join("AGENTS.md").exists());
-    let first = project::upgrade(&project, template.path(), false).unwrap();
-    assert_eq!(first["committed"], true);
-    assert_eq!(
-        fs::read_to_string(project.root.join("AGENTS.md")).unwrap(),
-        "# Original guidance\n"
-    );
-    let again = project::upgrade(&project, template.path(), false).unwrap();
-    assert_eq!(again["files"][0]["status"], "unchanged");
-    snapshot(template.path(), "guidance-2", "# Updated guidance\n");
-    project::upgrade(&project, template.path(), false).unwrap();
-    assert_eq!(
-        fs::read_to_string(project.root.join("AGENTS.md")).unwrap(),
-        "# Updated guidance\n"
-    );
-    let inventory: Value = serde_json::from_slice(
-        &fs::read(project.root.join(".accrete/template-install.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(inventory["asset_version"], "guidance-2");
-    assert_eq!(
-        inventory["files"]["AGENTS.md"]["sha256"],
-        store::revision(b"# Updated guidance\n")
-    );
-}
+fn format_and_project_id_are_a_complete_marker_and_everything_else_appears_on_first_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    let state = dir.path().join("state");
+    write_marker(&root, "format = 1\nproject_id = \"minimal\"\n");
 
-#[test]
-fn preserves_owner_edits_and_stops_before_other_asset_changes() {
-    let (_root, project, template) = prepared();
-    snapshot(template.path(), "1", "# Base\n");
-    project::upgrade(&project, template.path(), false).unwrap();
-    fs::write(project.root.join("AGENTS.md"), "# Owner text\n").unwrap();
-    snapshot(template.path(), "2", "# Candidate\n");
-    let mut manifest: Value =
-        serde_json::from_slice(&fs::read(template.path().join("accrete-template.json")).unwrap())
-            .unwrap();
-    fs::write(template.path().join("files/manual.md"), "manual\n").unwrap();
-    manifest["files"]
-        .as_array_mut()
+    let project = Project::discover(Some(&root), Some(&state), None).unwrap();
+    assert_eq!(project.timezone, "UTC");
+    for (store, resolved) in [
+        (".accrete/objects", &project.metadata),
+        ("results", &project.results),
+        ("memory", &project.memory),
+        ("tools", &project.tool_sources),
+        ("scratch", &project.scratch),
+    ] {
+        assert!(resolved.ends_with(store), "{store}");
+        assert!(!root.join(store).exists(), "{store} should be lazy");
+    }
+    assert!(!root.join(".accrete/data").exists());
+    assert!(!state.exists(), "resolving creates no host-local state");
+
+    store::Store::new(&project)
+        .create("result", json!({"id":"first"}))
+        .unwrap();
+    assert!(root.join("results/first.json").is_file());
+    assert!(project.state_dir.join("view.json").is_file());
+    assert!(!root.join("memory").exists(), "unused stores stay absent");
+    let entries: Vec<_> = fs::read_dir(root.join(".accrete"))
         .unwrap()
-        .push(json!({"source":"files/manual.md","destination":"manual.md"}));
-    fs::write(
-        template.path().join("accrete-template.json"),
-        serde_json::to_vec(&manifest).unwrap(),
-    )
-    .unwrap();
-    let error = project::upgrade(&project, template.path(), false).unwrap_err();
-    assert_eq!(error.kind, "conflict");
-    assert_eq!(
-        fs::read_to_string(project.root.join("AGENTS.md")).unwrap(),
-        "# Owner text\n"
-    );
-    assert!(!project.root.join("manual.md").exists());
-    assert!(
-        !project
-            .state_dir
-            .join("receipts/template-upgrade.json")
-            .exists()
-    );
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, ["project.toml"]);
 }
 
 #[test]
-fn rejects_unowned_existing_guidance_and_incompatible_template() {
-    let (_root, project, template) = prepared();
-    snapshot(template.path(), "1", "# Guidance\n");
-    fs::write(
-        project.root.join("AGENTS.md"),
-        "# Existing owner instructions\n",
-    )
-    .unwrap();
-    assert_eq!(
-        project::upgrade(&project, template.path(), false)
-            .unwrap_err()
-            .kind,
-        "conflict"
+fn global_state_and_host_options_apply_to_a_marker_with_a_safe_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    let state = dir.path().join("host-state");
+    write_marker(
+        &root,
+        &MARKER
+            .replace("fixture-workspace", "named-project.1")
+            .replace("\"UTC\"", "\"Asia/Shanghai\""),
     );
-    let manifest_path = template.path().join("accrete-template.json");
-    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
-    manifest["requires"]["cli_min"] = json!("0.2.0");
-    manifest["requires"]["cli_max_exclusive"] = json!("0.3.0");
-    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
-    assert_eq!(
-        project::upgrade(&project, template.path(), true)
-            .unwrap_err()
-            .kind,
-        "unsupported_format"
-    );
-    assert_eq!(
-        fs::read_to_string(project.root.join("AGENTS.md")).unwrap(),
-        "# Existing owner instructions\n"
-    );
-}
-
-#[test]
-fn resumes_asset_published_before_its_inventory() {
-    let (_root, project, template) = prepared();
-    snapshot(template.path(), "1", "# Complete guidance\n");
-    let preview = project::upgrade(&project, template.path(), true).unwrap();
-    let manifest_digest =
-        store::revision(&fs::read(template.path().join("accrete-template.json")).unwrap());
-    let receipt = json!({"format":1,"operation":"template_upgrade","source":template.path(),
-        "manifest_sha256":manifest_digest,"inventory_sha256":null,"files":preview["files"]});
-    fs::create_dir_all(project.state_dir.join("receipts")).unwrap();
-    fs::write(
-        project.state_dir.join("receipts/template-upgrade.json"),
-        serde_json::to_vec(&receipt).unwrap(),
-    )
-    .unwrap();
-    fs::write(project.root.join("AGENTS.md"), "# Complete guidance\n").unwrap();
-    let completed = project::upgrade(&project, template.path(), false).unwrap();
-    assert_eq!(completed["committed"], true);
-    assert!(project.root.join(".accrete/template-install.json").exists());
-    assert!(
-        !project
-            .state_dir
-            .join("receipts/template-upgrade.json")
-            .exists()
-    );
-}
-
-#[test]
-fn cli_init_uses_global_state_and_host_options_and_preserves_marker() {
-    let root = tempfile::tempdir().unwrap();
-    let project_root = root.path().join("project");
-    let state = root.path().join("host-state");
-    let output = Command::new(env!("CARGO_BIN_EXE_accrete"))
-        .args(["--json", "--state-dir"])
+    let output = accrete()
+        .args(["--json", "--project"])
+        .arg(&root)
+        .arg("--state-dir")
         .arg(&state)
-        .args(["--host", "test-machine", "init"])
-        .arg(&project_root)
         .args([
-            "--name",
-            "Named project",
-            "--timezone",
-            "Asia/Shanghai",
-            "--no-git",
+            "--host",
+            "test-machine",
+            "result",
+            "record",
+            "--id",
+            "first",
         ])
         .output()
         .unwrap();
@@ -187,8 +78,9 @@ fn cli_init_uses_global_state_and_host_options_and_preserves_marker() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let project =
-        Project::discover(Some(&project_root), Some(&state), Some("test-machine")).unwrap();
+    let project = Project::discover(Some(&root), Some(&state), Some("test-machine")).unwrap();
+    assert_eq!(project.project_id, "named-project.1");
+    assert_eq!(project.timezone, "Asia/Shanghai");
     assert!(
         project
             .state_dir
@@ -196,21 +88,118 @@ fn cli_init_uses_global_state_and_host_options_and_preserves_marker() {
     );
     assert_eq!(project.host, "test-machine");
     assert!(project.state_dir.join("view.json").is_file());
-    let before = fs::read(project_root.join(".accrete/project.toml")).unwrap();
-    project::init_with_context(
-        &project_root,
-        None,
-        "UTC",
-        None,
-        false,
-        None,
-        Some(&state),
-        Some("test-machine"),
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read(project_root.join(".accrete/project.toml")).unwrap(),
-        before
+    assert!(!root.join(".git").exists());
+}
+
+#[test]
+fn the_nearest_marker_and_the_environment_select_a_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let near = dir.path().join("near");
+    let other = dir.path().join("other");
+    write_marker(&near, MARKER);
+    write_marker(
+        &other,
+        &MARKER.replace("fixture-workspace", "selected-by-environment"),
     );
-    assert!(!project_root.join(".git").exists());
+    let nested = near.join("some/deep/directory");
+    fs::create_dir_all(&nested).unwrap();
+    let resolve = |environment: Option<&Path>| -> Value {
+        let mut command = accrete();
+        command.current_dir(&nested).arg("--state-dir").arg(&state);
+        if let Some(path) = environment {
+            command.env("ACCRETE_PROJECT", path);
+        }
+        let output = command
+            .args(["--json", "config", "resolve"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    assert_eq!(resolve(None)["project_id"], "fixture-workspace");
+    assert_eq!(
+        resolve(Some(&other))["project_id"],
+        "selected-by-environment"
+    );
+}
+
+#[test]
+fn outside_a_workspace_the_error_says_how_to_create_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("absent");
+    let by_ancestor = accrete()
+        .current_dir(dir.path())
+        .args(["--json", "config", "resolve"])
+        .output()
+        .unwrap();
+    let by_flag = accrete()
+        .arg("--project")
+        .arg(&absent)
+        .args(["--json", "config", "resolve"])
+        .output()
+        .unwrap();
+    let by_environment = accrete()
+        .env("ACCRETE_PROJECT", &absent)
+        .args(["--json", "config", "resolve"])
+        .output()
+        .unwrap();
+    for output in [by_ancestor, by_flag, by_environment] {
+        assert_eq!(output.status.code(), Some(3));
+        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(error["error"]["kind"], "project");
+        let message = error["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("npx accrete-kit@latest create"),
+            "{message}"
+        );
+    }
+    assert!(!absent.exists());
+}
+
+#[test]
+fn a_marker_outside_the_kernels_rules_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let refused = |marker: &str| {
+        let root = dir.path().join("project");
+        write_marker(&root, marker);
+        Project::discover(Some(&root), Some(&state), None)
+            .unwrap_err()
+            .kind
+    };
+    assert_eq!(
+        refused("format = 2\nproject_id = \"later\"\n"),
+        "unsupported_format"
+    );
+    assert_eq!(
+        refused("project_id = \"unformatted\"\n"),
+        "unsupported_format"
+    );
+    assert_eq!(refused("format = 1\n"), "config");
+    assert_eq!(
+        refused("format = 1\nproject_id = \"../escape\"\n"),
+        "config"
+    );
+    assert_eq!(
+        refused("format = 1\nproject_id = \"p\"\ntimezone = \"Mars/Olympus\"\n"),
+        "config"
+    );
+}
+
+#[test]
+fn interface_reports_the_kernel_without_a_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = accrete()
+        .current_dir(dir.path())
+        .args(["interface", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["cli_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(response["project_formats"], json!([1]));
+    assert_eq!(response["project_marker"], ".accrete/project.toml");
+    assert!(response.get("template").is_none());
+    assert!(response.get("template_inventory").is_none());
 }

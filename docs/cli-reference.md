@@ -4,6 +4,9 @@ This manual describes `accrete` 0.1.0, interface 1, project/document format 1,
 and projection format 1. `accrete interface --json` reports these conventions
 without requiring a project. The executable performs organizational writes;
 read source, documents, observations, and scientific arrays with their native tools.
+It runs as `.accrete/bin/accrete` from the Workspace root and
+`<workspace>/.accrete/bin/accrete --project <workspace>` from anywhere else; this manual
+writes `accrete` as shorthand.
 
 ## Invocation and output
 
@@ -36,31 +39,24 @@ Creation commands accept `--from FILE`, `--id`, `--name`, and `--description`.
 The convenience flags override matching fields in the supplied JSON object.
 Unknown extension fields remain in the stored document. `--from -` accepts stdin
 for object creation, amendments, Data locations, and Memory append; the portable
-bundle import and template/migration commands require actual paths.
+bundle import and migration commands require actual paths.
 
-Input JSON/Markdown filenames, metadata export/import paths, and template/migration
-source paths resolve from the invocation directory. Model checkout/worktree paths,
+Input JSON/Markdown filenames, metadata export/import paths, and migration source
+paths resolve from the invocation directory. Model checkout/worktree paths,
 Tool source/export/exposure paths, Data paths, and source-capture destinations
 resolve from the project root. Absolute paths are useful across agent worktrees.
 
-## Initialization and configuration
+## Workspace and configuration
 
 ```sh
-accrete init ./research --name research --timezone Asia/Shanghai
-accrete init ./research --template ../accrete-template
-accrete init ./research --no-git
 accrete --project ./research config resolve --json
 ```
 
-`init [DIRECTORY]` defaults to the current directory. It creates the shared
-`.accrete/project.toml`, native store directories, and local-storage ignore rules.
-It initializes Git when needed, unless `--no-git` is supplied. It does not create
-an initial commit. `--id UUID` provides an explicit project identity.
-
-Repeated initialization preserves the existing identity and configuration. A
-different requested ID or name conflicts. Existing Git source remains where it is.
-An optional template is installed through the same ownership-aware mechanism as
-`project upgrade`; an asset conflict can leave native initialization completed.
+The Kernel works inside an existing Workspace; `npx accrete-kit@latest create` creates one. Without
+`--project` or `ACCRETE_PROJECT`, the nearest ancestor holding `.accrete/project.toml` is
+selected. When there is none the command exits 3 and says so. Store directories and
+host-local state are created on first use. [workspace.md](workspace.md) states what the
+marker needs.
 
 Shared settings live in `.accrete/project.toml`; ignored machine bindings live in
 `.accrete/local.toml`. Defaults are overridden by shared configuration, then local
@@ -72,14 +68,19 @@ Read [configuration.md](configuration.md) for path and host conventions.
 ```sh
 accrete model register --id model-main --name target --checkout ../numerical-model
 accrete model register --from model.json
+accrete model register --from model.json --checkout ../numerical-model
 accrete model bind model-main --checkout /work/checkouts/target
 accrete model update model-main --from model-change.json --expect REVISION
-accrete model retire model-main --expect REVISION
+accrete model retire model-main --expect REVISION --from retire.json
 ```
 
-Registration takes an existing Git checkout or a `repository` locator supplied in
-JSON. It does not clone or fetch. Checkouts are local bindings; portable descriptors
+Registration takes `--from FILE`, `--checkout`, or both, with an existing Git checkout
+or a `repository` locator supplied in JSON. It does not clone or fetch. Checkouts are
+local bindings; `repository.checkout` in the JSON is treated exactly like `--checkout`,
+which wins if both are given, and it is stripped from the descriptor. Portable descriptors
 retain identity, source scope, repository hints, and any registration observation.
+Retirement's optional `--from` JSON may carry a `reason`, stored on the descriptor;
+the same holds for `tool retire` and `data retire`.
 `--source-scope PATH` can be repeated to record selected Git tree/blob scopes.
 A registration observation is not automatically an execution-time revision.
 
@@ -90,8 +91,11 @@ accrete model iteration open model-main --id investigation-2 \
   --branch investigate-routing --worktree ../target-routing --start HEAD
 accrete model iteration open model-main --id existing-effort \
   --worktree ../already-created-worktree --existing
+accrete model iteration open model-main --from iteration-open.json --name flag-wins
 accrete model iteration close investigation-2 --outcome integrated \
-  --commit COMMIT --expect REVISION
+  --commit COMMIT --commit COMMIT --expect REVISION
+accrete model iteration close investigation-1 --from iteration-close.json \
+  --expect REVISION
 accrete model iteration remove-worktree investigation-2
 ```
 
@@ -100,15 +104,21 @@ With a new `--worktree`, the command uses the Model's actual Git repository.
 `--branch` creates the requested new branch; without it, Git creates a detached
 worktree. `--existing` attaches an existing worktree of the same repository.
 `--start` defaults to `HEAD`; an attached existing worktree supplies its own HEAD.
+`--from FILE` supplies `id`, `name`, `purpose`, `branch`, `worktree`, `start` and
+`existing` under the flags' names, and flags override it. Other fields stay on the
+descriptor. `existing` without a `worktree` is refused, from a flag or a file.
 
-Closing records a free-text outcome and optional retained revision. It does not
+Closing stores an `outcome`, an optional `summary`, and optional `commits`, from
+`--from FILE` or the convenience `--outcome` and repeatable `--commit`, which override
+the file. An outcome is required from one or the other. The receipt lists `retained_refs`,
+and any commit that could not be retained under `retention_warnings`. It does not
 merge, delete a branch, or remove storage. `remove-worktree` is separate and keeps
 Git's normal refusal to remove changed work; `--force` explicitly requests Git's
 destructive removal behavior. Worktree receipts retain interrupted effects for
 `recover`; recovery attaches surviving resources without repeating development.
 
-Locally available cited commits may be kept under
-`refs/accrete/retained/OBJECT_ID`. Those refs are local. Use native Git push or
+Locally available cited commits are kept under
+`refs/accrete/retained/OBJECT_ID/COMMIT`. Those refs are local. Use native Git push or
 bundle commands with an explicit refspec when transporting them to another host.
 
 ## Tools and agent exposure
@@ -136,7 +146,8 @@ accrete tool expose tool-residual --agent claude --mode wrapper
 accrete tool expose tool-residual --agent codex --mode symlink \
   --name residual-analysis
 accrete tool refresh tool-residual
-accrete tool retire tool-residual --expect REVISION
+accrete tool refresh tool-residual --agent claude
+accrete tool retire tool-residual --expect REVISION --from retire.json
 accrete tool export tool-residual --to ../residual-analysis-export
 ```
 
@@ -151,7 +162,10 @@ whose `name` matches the exposure and whose `description` is nonempty. Generated
 exposures are locally inventoried; unrelated or edited destination content is
 preserved and reported as a conflict. A Tool remains admitted if exposure is pending.
 
-Refresh regenerates existing managed exposures; a retired descriptor causes local
+A generated wrapper can name this host's absolute source path, so an exposure inside the
+project is listed in Git's repository-local `info/exclude` and stays out of shared Git
+content; the CLI never writes `.gitignore`. Refresh regenerates existing managed exposures, or
+only one agent's with `--agent`; `--host` remains the global machine label. A retired descriptor causes local
 managed exposures to be removed when possible. Retirement preserves the descriptor
 and historical references. Already loaded agent sessions may retain their content.
 Tool export creates a local directory containing `tool.json` and `source/`, omits
@@ -184,7 +198,7 @@ an opaque token, and a path without a version or digest does not prove frozen by
 accrete data location add year-1 --location archive --path retained/year-1
 accrete data location add year-1 --from location.json --expect REVISION
 accrete data amend year-1 --from description-change.json --expect REVISION
-accrete data retire year-1 --expect REVISION
+accrete data retire year-1 --expect REVISION --from retire.json
 ```
 
 Location input accepts `name`, `kind`, `path`, `host`, and descriptive observations.
@@ -199,7 +213,7 @@ directly replace the locations array. Retirement does not delete bytes.
 ```sh
 accrete data materialize year-1 --to working
 accrete data materialize year-1 --source archive --to analysis --expect REVISION
-accrete data evict year-1 --location LOCATION_ID --expect REVISION
+accrete data evict year-1 --location LOCATION --expect REVISION
 accrete recover
 accrete recover --operation DATA_OPERATION_UUID
 ```
@@ -221,8 +235,9 @@ selectors are currently rejected; use a version-specific exported locator or per
 the native transfer and add its resulting location. Remote uploads are outside this
 first adapter. See [data.md](data.md) for supported transfer details.
 
-Eviction applies only to a replica created and owned by ACCRETE, with its matching
-ownership marker. Registered borrowed paths are not eligible. Metadata identity,
+`--location` takes a location ID or name; a name that matches several current local
+locations is a conflict. Eviction applies only to a replica created and owned by ACCRETE,
+with its matching ownership marker. Registered borrowed paths are not eligible. Metadata identity,
 other locations, and earlier Result references remain. Recovery reconciles completed
 transfers, publications, and worktree receipts. It does not relaunch simulations.
 If transfer itself was incomplete, inspect its staging path and retry deliberately.
@@ -239,8 +254,9 @@ accrete result observe run-1 --text-file scratch/observation.md \
 
 A Result is a description of an activity. It may be submitted before, during, or
 after execution; it never authorizes or launches that execution. JSON can contain
-model/tool associations, input/output Data IDs, timestamps, environment information,
-measurements, observations, and project extensions. Omitted historical details stay
+`name` and `activity` (both optional; the index `name` column falls back to `activity`),
+model/tool associations, input/output Data IDs, timestamps, free-form `execution`
+details, an `observations` array, and project extensions. Omitted historical details stay
 unknown. `--observe-checkout` adds a separately labelled recording-time observation.
 
 `--operation-id` makes an observation append retryable. Repeating the same ID and
@@ -292,6 +308,7 @@ accrete import --from handoff.json
 accrete import --from another-project.json --allow-foreign
 accrete migrate --from ../legacy-workspace --dry-run
 accrete migrate --from ../legacy-workspace
+accrete migrate --dry-run
 ```
 
 Metadata bundles contain JSON/Markdown, IDs, revisions, and original Memory paths.
@@ -307,24 +324,8 @@ metadata backups and a persistent identity map. Source changes after planning
 produce a conflict. Repeating an interrupted migration uses its existing mapping.
 Scientific payloads and Model histories remain at their existing locations.
 
-## Separate template integration
-
-```sh
-accrete project upgrade --from ../accrete-template --dry-run
-accrete project upgrade --from ../accrete-template
-```
-
-The template directory supplies `accrete-template.json`, with `format: 1`,
-`asset_version`, a `requires` range, and explicit `files` entries. Each entry has
-`source`, `destination`, and optional `executable`. Paths are portable relative
-file paths. CLI version bounds use numeric `major.minor.patch`, with an exclusive
-upper bound. The manifest schema is [template-manifest.schema.json](../schemas/template-manifest.schema.json).
-
-An inventory tracks installed hashes and executable modes. Refresh preflights all
-destinations, preserves owner edits, and replaces only matching managed assets.
-Protected metadata/state/source roots and symlink traversal are rejected. Unlisted
-old assets are retained. An interrupted refresh resumes by repeating the same
-source snapshot. Binary installation does not update this inventory or project formats.
+`migrate` without `--from` handles persisted format changes. Format 1 is the only one
+in existence, so it reports that the project is current and changes nothing.
 
 ## Stable outcomes and exit codes
 
@@ -336,7 +337,7 @@ source snapshot. Binary installation does not update this inventory or project f
 | `4` | Revision, identity, ownership, or destination conflict. |
 | `5` | Native dependency unavailable. |
 | `6` | Storage failure before the requested publication completes. |
-| `7` | Incomplete external operation or partially failed import. |
+| `7` | Incomplete external operation, or a partially failed import. |
 | `8` | Publication is visible but durability is uncertain. |
 
 Successful mutations return their object ID, absolute path, byte revision, and

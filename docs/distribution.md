@@ -1,11 +1,10 @@
 # Build, installation and distribution
 
-ACCRETE 0.1.0 is a synchronous native Rust executable. Node.js participates only
-when selecting and launching a binary installed through npm. There is no daemon,
-installer compiler, installation script, runtime downloader, or self-updater.
-The repository contains complete package construction; publication is an owner
-operation. `@accrete/cli`, `@accrete/kernel-*`, and `create-accrete` are naming
-defaults, with no claim that their npm names have been reserved or published.
+ACCRETE 0.1.0 is a synchronous native Rust executable, with no daemon, installation script,
+runtime downloader, or self-updater. It needs no Node.js to run, and it is not published
+to npm. `.github/workflows/release.yml` attaches native archives to a GitHub Release from a
+version tag. The `accrete-kit` npm package, built from `accrete-template`, embeds those
+binaries and installs one at `.accrete/bin/accrete` in each Workspace.
 
 ## Build from source
 
@@ -16,7 +15,6 @@ graph. From the repository root:
 ```sh
 cargo build --release --locked
 ./target/release/accrete --help
-./target/release/accrete init ./my-project
 ```
 
 For a source installation on the current machine:
@@ -43,152 +41,112 @@ dynamic interpreter. This setting applies to the build, never to normal CLI use.
 
 ## Release targets
 
-| Machine | Rust target | Payload name |
+| Machine | Rust target | Archive |
 |---|---|---|
-| Linux x64 | `x86_64-unknown-linux-musl` | `@accrete/kernel-linux-x64` |
-| Linux ARM64 | `aarch64-unknown-linux-musl` | `@accrete/kernel-linux-arm64` |
-| macOS Apple Silicon | `aarch64-apple-darwin` | `@accrete/kernel-darwin-arm64` |
-| macOS Intel | `x86_64-apple-darwin` | `@accrete/kernel-darwin-x64` |
+| Linux x64 | `x86_64-unknown-linux-musl` | `accrete-<version>-x86_64-unknown-linux-musl.tar.gz` |
+| Linux ARM64 | `aarch64-unknown-linux-musl` | `accrete-<version>-aarch64-unknown-linux-musl.tar.gz` |
+| macOS Apple Silicon | `aarch64-apple-darwin` | `accrete-<version>-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `x86_64-apple-darwin` | `accrete-<version>-x86_64-apple-darwin.tar.gz` |
 
-The CI workflows build and exercise each target on a native runner. They create
-artifacts and do not publish anything. The local delivery's validation report
-states which target was actually built and exercised in this session; the matrix
-is not a claim of completed runs on the other machines. Windows is outside this
-initial release's distribution contract.
+The workflows build and exercise each target on a native runner. `ci.yml` only creates
+artifacts; `release.yml` also attaches them to a release. [VALIDATION.md](../VALIDATION.md)
+states which targets were actually built and exercised; the matrix is not a claim of
+completed runs on the other machines. Windows is outside this initial release's
+distribution contract.
 
-The package builder also accepts corresponding Linux `*-gnu` binaries for local
-development and records their glibc dependency. It must be given the actual target
-used to build the binary. A GNU local package and a musl release package have the
-same platform package name; do not publish both variants under one version. The
-public Linux release uses musl. A glibc development build inherits the builder's
-libc requirements and is not presented as a portable HPC artifact.
+The packaging script also accepts corresponding Linux `*-gnu` binaries for local
+development and records their glibc dependency. It must be given the actual target used
+to build the binary. The public Linux release uses musl. A glibc development build
+inherits the builder's libc requirements and is not presented as a portable HPC artifact.
 
-## Construct npm tarballs and a native archive
+## Construct a native archive
 
-Node.js 20 or newer, npm, and `tar` are build-time packaging tools. Example:
+Node.js 20 or newer and `tar` are build-time packaging tools. Example:
 
 ```sh
 node scripts/package-release.mjs \
   --binary target/x86_64-unknown-linux-musl/release/accrete \
   --target x86_64-unknown-linux-musl \
-  --out dist/linux-x64-0.1.0
+  --out dist/x86_64-unknown-linux-musl
 ```
 
-The destination must be fresh. The command copies the same executable bytes into
-one platform payload and one native archive, then packs the launcher and
-initializer. It emits:
+Without `--out`, the destination is `dist/<target>`. It emits:
 
-- `accrete-kernel-linux-x64-0.1.0.tgz`: the native payload, license and target metadata.
-- `accrete-cli-0.1.0.tgz`: the small JavaScript dispatcher.
-- `create-accrete-0.1.0.tgz`: the initializer that forwards to native `init`.
-- `accrete-0.1.0-x86_64-unknown-linux-musl.tar.gz`: a directly runnable native release.
-- `release-manifest.json`: targets, binary digest, ABI, SQLite mode and package digests.
-- `SHA256SUMS`: tarball/archive SHA-256 checksums.
+- `accrete-<version>-<target>.tar.gz`, holding one directory of the same name with `accrete`,
+  `LICENSE`, `THIRD-PARTY-NOTICES`, `licenses/` and `release.json` (target, binary digest,
+  ABI, SQLite mode and toolchain).
+- `SHA256SUMS`, with one `<sha256>  <archive filename>` line per archive. Several targets can
+  share an output directory; an archive that already exists is never overwritten.
 
-There is no network request in package assembly beyond npm's local `pack`
-operation. No `postinstall` hook exists. All package version fields and dependency
-versions are checked against Cargo's release version before packaging. The native
-payload is an exact optional dependency of the launcher. The initializer has an
-exact dependency on the launcher.
+## How users get the Kernel
 
-## Install the delivered packages without a registry
-
-The local installer consumes the tarballs in a release directory, explicitly
-selects offline mode, and disables lifecycle scripts:
+The Kernel arrives with the Workspace:
 
 ```sh
-node scripts/install-local.mjs dist/linux-x64-0.1.0 ./local-install
-./local-install/node_modules/.bin/accrete --version
-./local-install/node_modules/.bin/create-accrete ./my-project
+npx accrete-kit@latest create my-project
+cd my-project
+.accrete/bin/accrete --version
 ```
 
-It checks that the payload OS and architecture match the current Node process.
-The installation prefix may be any explicitly chosen directory. The ordinary npm
-package semantics and native binary remain unchanged. Once published, the public
-route will be:
-
-```sh
-npm install --global @accrete/cli@0.1.0 --include=optional
-accrete init ./my-project
-# Or use npm's initializer convention:
-npm create accrete@0.1.0 -- ./my-project
-```
-
-Do not copy `node_modules` across architectures or operating systems. An omitted
-or mismatched native dependency produces an actionable launcher error and exit
-status 5. There is no fallback download. Native CLI exit codes are otherwise
-preserved. The wrapper forwards arguments, working directory, environment,
-standard streams, and termination signals.
+From anywhere other than the Workspace root, such as a Model checkout or run directory, use
+`<workspace>/.accrete/bin/accrete --project <workspace>`. The binary is per host and is not
+committed; after a fresh clone, `npx accrete-kit@<version> install` restores it.
 
 ## Direct native installation
 
-A compute node needs no npm, Node.js, Python environment or source build when it
-receives the matching native archive:
+A compute host needs no npm, Node.js, Python environment or source build when it receives
+the matching archive from the GitHub Release. Check it against the release's `SHA256SUMS`
+and extract it into the Workspace:
 
 ```sh
-tar -xzf accrete-0.1.0-x86_64-unknown-linux-musl.tar.gz
-./accrete-0.1.0-x86_64-unknown-linux-musl/accrete --version
-install -m 0755 ./accrete-0.1.0-x86_64-unknown-linux-musl/accrete /chosen/bin/accrete
+sha256sum --check --ignore-missing SHA256SUMS
+mkdir -p <workspace>/.accrete/bin
+tar -xzf accrete-0.1.0-x86_64-unknown-linux-musl.tar.gz -C <workspace>/.accrete/bin --strip-components=1
+<workspace>/.accrete/bin/accrete --project <workspace> --version
 ```
 
-Choose a writable destination already on PATH, or invoke the absolute binary
-path. Git is needed for Git operations. rclone is needed only when an explicitly
-configured rclone materialization is requested. Existing SSH, scheduler and data
-transfer arrangements remain native project operations.
+Take the version the Workspace records. Git is needed for Git operations. rclone is needed
+only when an explicitly configured rclone materialization is requested. Existing SSH,
+scheduler and data transfer arrangements remain native project operations.
 
-## Template integration
+## Workspaces and the template
 
-The independently developed `accrete-template` repository supplies its files and
-an `accrete-template.json` manifest. The kernel initializes the project and owns
-safe asset application; JavaScript never contains a second scaffold implementation:
-
-```sh
-accrete init ./my-project --template /path/to/accrete-template
-accrete --project ./my-project project upgrade --from /path/to/accrete-template --dry-run
-accrete --project ./my-project project upgrade --from /path/to/accrete-template
-```
-
-See [template-integration.md](template-integration.md) for the complete manifest,
-compatibility and file ownership interface. This CLI repository does not include
-a competing foundational Skill collection or Coordinator template. A later
-release build can embed an explicitly selected template snapshot through a
-coordinated integration change; the current stable seam accepts a local snapshot.
-Software installation, template application, project format migration and Tool
-source updates are separate actions.
+This repository knows nothing about the template and vendors none of it, so building
+needs neither Node nor `accrete-template`. Software installation, Workspace creation
+and template upgrades (the generator), project format migration and Tool source updates
+are separate actions. [workspace.md](workspace.md) states what the Kernel requires of a
+Workspace.
 
 ## Owner release procedure
 
-Before a public release, select an npm scope and align the two package manifests,
-launcher payload naming and package-builder naming if the defaults change. Keep
-the initializer, launcher, all payloads and native executable at one release
-version. Build all chosen targets from the same committed source and lockfile.
+Pushing a tag `vX.Y.Z`, where `X.Y.Z` is Cargo's version, runs
+`.github/workflows/release.yml`. It builds and tests all four targets on native runners.
+Only when all succeed does its `release` job, the only one with `contents: write`, attach
+the four archives and one combined `SHA256SUMS` to a GitHub Release. The release stays a
+draft until every asset is present. A run on a branch builds without releasing. Publish
+`accrete-kit` from `accrete-template` afterward, because it embeds these archives.
 
-Publish each platform payload first, with an explicit distribution tag such as
-`next`. Publish the launcher after the complete payload set, then the initializer.
-Only after the complete release is installed successfully should the owner
-advance the normal distribution tag. No source build or npm command in this
-repository publishes automatically. npm registry authentication and optional
-trusted publishing belong to the maintainer's release environment.
+To resume a failed run, re-run its failed jobs. Successful build jobs and their artifacts
+are reused, missing assets are uploaded, and assets already present are compared. An asset
+with different bytes fails the run and is never replaced, so re-running all jobs after a
+partial upload fails unless the rebuild is byte-identical. In that case remove the draft's
+assets deliberately or release a new version.
 
-Keep archive digests with the release. An interrupted publication can resume with
-the same bytes; never substitute a different executable under an already released
-version. Installing an updated binary does not change existing project files,
-Model revisions, data payloads, or project instructions.
+Installing an updated binary does not change existing project files, Model revisions,
+data payloads, or project instructions.
 
 ## Upstream references
 
 The implementation follows the supplied architecture's distribution decisions.
-These are the primary interface references used for package fields and CI targets:
+This is the primary interface reference used for CI targets:
 
-- [npm package.json](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/): optional dependencies, OS/CPU fields and executable mappings.
-- [Node child processes](https://nodejs.org/api/child_process.html): argv-based spawning and process events.
 - [GitHub runner images](https://github.com/actions/runner-images): current native runner labels. The workflows pin `macos-15` for ARM64 and `macos-15-intel` for Intel, plus Ubuntu 24.04 x64/ARM64.
 
 ## License notices
 
 The initial implementation uses MIT for ACCRETE's own code. This is a documented
 engineering choice that the owner can change before publication. Native archives
-and npm packages include `THIRD-PARTY-NOTICES` and the accompanying `licenses/`
+include `THIRD-PARTY-NOTICES` and the accompanying `licenses/`
 files for resolved Rust dependencies, the standard library, SQLite and Linux's
 musl libc. To refresh the notices after deliberately changing dependencies, with
 the locked dependencies already downloaded:

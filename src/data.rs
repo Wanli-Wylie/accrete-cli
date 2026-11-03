@@ -853,19 +853,33 @@ fn owned_location(project: &Project, doc: &Value, selector: &str) -> Result<Valu
         .get("locations")
         .and_then(Value::as_array)
         .ok_or_else(|| invalid("Data has no locations"))?;
-    let matches: Vec<_> = locations
+    let current = |location: &&Value| {
+        location.get("host").and_then(Value::as_str) == Some(&project.host)
+            && location.get("availability").and_then(Value::as_str) != Some("evicted")
+    };
+    let by_id = locations
         .iter()
-        .filter(|location| {
-            (location.get("id").and_then(Value::as_str) == Some(selector)
-                || location.get("name").and_then(Value::as_str) == Some(selector))
-                && location.get("host").and_then(Value::as_str) == Some(&project.host)
-                && location.get("availability").and_then(Value::as_str) != Some("evicted")
-        })
+        .filter(current)
+        .find(|location| location.get("id").and_then(Value::as_str) == Some(selector));
+    let named: Vec<_> = locations
+        .iter()
+        .filter(current)
+        .filter(|location| location.get("name").and_then(Value::as_str) == Some(selector))
         .collect();
-    if matches.len() != 1 {
-        return Err(invalid("select one current local location by its exact ID"));
-    }
-    let location = matches[0];
+    let location = match (by_id, named.as_slice()) {
+        (Some(location), _) => location,
+        (None, [location]) => *location,
+        (None, []) => {
+            return Err(invalid(format!(
+                "no current local location with ID or name {selector:?}"
+            )));
+        }
+        (None, _) => {
+            return Err(conflict(format!(
+                "location name {selector:?} is ambiguous; select its ID"
+            )));
+        }
+    };
     if location.get("managed").and_then(Value::as_bool) != Some(true) {
         return Err(invalid(
             "borrowed locations cannot be evicted; registration does not transfer deletion ownership",

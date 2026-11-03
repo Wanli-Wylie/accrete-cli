@@ -555,6 +555,13 @@ fn summary(plan: &Value, state: &Path, dry_run: bool) -> Value {
         "identity_map":plan["identity_map"],"committed":!dry_run && plan["status"]=="complete"})
 }
 
+/// `migrate` without a legacy source. Format 1 is the only persisted format, so a
+/// readable project is already current.
+pub fn current(project: &Project, dry_run: bool) -> Value {
+    json!({"committed":false,"dry_run":dry_run,"current":true,"changed":false,"format":crate::FORMAT,
+        "project_id":project.project_id,"message":"Project is at format 1; nothing to migrate"})
+}
+
 pub fn migrate(project: &Project, legacy_root: &Path, dry_run: bool) -> Result<Value> {
     let source = fs::canonicalize(project.resolve(legacy_root))?;
     if !source.is_dir() {

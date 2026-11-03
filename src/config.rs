@@ -6,6 +6,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+const NO_WORKSPACE_HINT: &str = "create a Workspace with `npx accrete-kit@latest create`, or select one with --project or ACCRETE_PROJECT";
+
 #[derive(Debug, Clone)]
 pub struct Project {
     pub root: PathBuf,
@@ -119,7 +121,10 @@ impl Project {
             if !p.join(".accrete/project.toml").is_file() {
                 return Err(Error::new(
                     "project",
-                    format!("no .accrete/project.toml in {}", p.display()),
+                    format!(
+                        "no .accrete/project.toml in {}; {NO_WORKSPACE_HINT}",
+                        p.display()
+                    ),
                 ));
             }
             p
@@ -131,7 +136,10 @@ impl Project {
                 .ok_or_else(|| {
                     Error::new(
                         "project",
-                        "no ACCRETE project found; use --project or accrete init",
+                        format!(
+                            "no ACCRETE Workspace at or above {}; {NO_WORKSPACE_HINT}",
+                            cwd.display()
+                        ),
                     )
                 })?
         };
@@ -149,6 +157,9 @@ impl Project {
             .and_then(toml::Value::as_str)
             .ok_or_else(|| Error::new("config", "project_id missing"))?
             .to_string();
+        // The marker is written outside the Kernel, so its identity is checked here.
+        crate::store::valid_id(&project_id)
+            .map_err(|e| Error::new("config", format!("project_id: {}", e.message)))?;
         merge(&mut config, shared);
         let local_path = root.join(".accrete/local.toml");
         if local_path.exists() {

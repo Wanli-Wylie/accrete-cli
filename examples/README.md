@@ -21,6 +21,7 @@ source before requesting an exposure. The Data example is an external reference;
 it intentionally performs no network transfer. Its descriptor does not promise
 that this illustrative locator is reachable.
 
-The Result leaves execution revisions and measurements unspecified. Supply the
-values from the actual activity when known. The Markdown is an ordinary draft;
+The Result leaves execution revisions and measurements unspecified, under the
+free-form `execution` and `observations` fields. Supply the values from the actual
+activity when known. The Markdown is an ordinary draft;
 `memory append` adds the managed frontmatter and date-organized path.

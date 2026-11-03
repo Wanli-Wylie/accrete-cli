@@ -37,7 +37,7 @@ A file description can be supplied directly:
     "size_bytes": 4096,
     "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   },
-  "origin": {"provider": "Project-maintained acquisition", "result": "acquisition-result"},
+  "origin": {"description": "Project-maintained acquisition", "result_id": "acquisition-result"},
   "locations": [
     {
       "name": "archive",
@@ -50,7 +50,8 @@ A file description can be supplied directly:
 ```
 
 The hash and size above illustrate the schema; supply the actual producer values
-or omit those fields. `mode` defaults to `closed`; `live` explicitly describes a
+or omit those fields. `--result ID` writes the same `origin.result_id`. `content.edition`
+holds optional words describing the intended edition, such as a provider's release name. `mode` defaults to `closed`; `live` explicitly describes a
 mutable source. A corrected closed product gets a new Data ID, optionally with
 `replaces` naming the previous ID. Adding a replica leaves `content` unchanged.
 
@@ -173,8 +174,12 @@ read access remains unrestricted.
 ## Evict one owned replica
 
 ```sh
-accrete data evict forcing-2005 --location REPLICA_UUID
+accrete data evict forcing-2005 --location working
+accrete data evict forcing-2005 --location REPLICA_ID
 ```
+
+`--location` takes a location ID or name. A name matching several current local
+locations is a conflict; select the ID instead.
 
 Eviction checks the saved ownership marker and the concrete local path before
 removing `payload`. It marks that location `evicted` and preserves the descriptor,

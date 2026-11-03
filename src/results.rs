@@ -15,6 +15,9 @@ pub fn record(
     if !payload.is_object() {
         return Err(Error::new("invalid", "Result input must be a JSON object"));
     }
+    if payload.get("observations").is_some_and(|v| !v.is_array()) {
+        return Err(Error::new("invalid", "observations must be an array"));
+    }
     if let Some(path) = observe_checkout {
         // Deliberately separate from execution-time model references.
         let existing = payload

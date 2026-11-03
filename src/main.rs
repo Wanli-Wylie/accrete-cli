@@ -2,7 +2,7 @@ use accrete::{
     config::Project,
     data,
     error::{Error, Result},
-    exchange, index, memory, models, project, results,
+    exchange, index, memory, models, results,
     store::{self, Store},
     tools,
 };
@@ -40,8 +40,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Initialize native stores/configuration; optionally install a template manifest.
-    Init(Init),
     /// Resolve the Kernel-owned configuration and physical paths.
     Config {
         #[command(subcommand)]
@@ -96,35 +94,16 @@ enum Command {
         #[arg(long)]
         operation: Option<String>,
     },
-    /// Convert the supplied legacy scaffold's metadata, retaining originals and identity maps.
+    /// Handle persisted format changes; --from converts a legacy scaffold's metadata,
+    /// retaining originals and identity maps.
     Migrate {
         #[arg(long)]
-        from: PathBuf,
+        from: Option<PathBuf>,
         #[arg(long)]
         dry_run: bool,
     },
-    /// Explicit project guidance updates; separate from binary and data-format updates.
-    Project {
-        #[command(subcommand)]
-        command: ProjectCommand,
-    },
-    /// Print stable versions and integration conventions for template/tool authors.
+    /// Print stable versions and integration conventions for scaffold and Tool authors.
     Interface,
-}
-#[derive(Args)]
-struct Init {
-    #[arg(default_value = ".")]
-    directory: PathBuf,
-    #[arg(long)]
-    name: Option<String>,
-    #[arg(long, default_value = "UTC")]
-    timezone: String,
-    #[arg(long)]
-    id: Option<String>,
-    #[arg(long)]
-    no_git: bool,
-    #[arg(long)]
-    template: Option<PathBuf>,
 }
 #[derive(Subcommand)]
 enum ConfigCommand {
@@ -134,16 +113,6 @@ enum ConfigCommand {
 enum IndexCommand {
     Refresh,
 }
-#[derive(Subcommand)]
-enum ProjectCommand {
-    Upgrade {
-        #[arg(long)]
-        from: PathBuf,
-        #[arg(long)]
-        dry_run: bool,
-    },
-}
-
 #[derive(Args)]
 struct Input {
     /// JSON object file, or '-' for stdin. Unknown extension fields are preserved.
@@ -188,6 +157,9 @@ struct Amend {
 #[derive(Args)]
 struct Retire {
     selector: String,
+    /// Optional JSON object, such as {"reason": "..."}, stored on the descriptor.
+    #[arg(long)]
+    from: Option<PathBuf>,
     #[arg(long)]
     expect: String,
 }
@@ -215,8 +187,13 @@ enum ModelCommand {
 }
 #[derive(Subcommand)]
 enum IterationCommand {
+    /// Describe an iteration. --worktree creates a worktree unless --existing; without
+    /// it, no storage is allocated.
     Open {
         model: String,
+        /// JSON object using these flags' names as fields; flags override it.
+        #[arg(long)]
+        from: Option<PathBuf>,
         #[arg(long)]
         id: Option<String>,
         #[arg(long)]
@@ -230,15 +207,20 @@ enum IterationCommand {
         #[arg(long)]
         start: Option<String>,
         /// Attach an existing worktree instead of creating one.
-        #[arg(long, requires = "worktree")]
+        #[arg(long)]
         existing: bool,
     },
     Close {
         selector: String,
+        /// JSON object with outcome, optional summary and optional commits[].
         #[arg(long)]
-        outcome: String,
+        from: Option<PathBuf>,
+        /// Required here or in --from.
         #[arg(long)]
-        commit: Option<String>,
+        outcome: Option<String>,
+        /// A commit to retain; repeat for several. Replaces commits[] in --from.
+        #[arg(long)]
+        commit: Vec<String>,
         #[arg(long)]
         expect: String,
     },
@@ -280,6 +262,9 @@ enum ToolCommand {
     },
     Refresh {
         selector: String,
+        /// Refresh only this host's exposures.
+        #[arg(long,value_parser=["codex","claude"])]
+        agent: Option<String>,
     },
     Retire(Retire),
     Export {
@@ -412,33 +397,39 @@ fn read_json(path: &Path) -> Result<Value> {
 fn amend(project: &Project, kind: &str, args: &Amend) -> Result<Value> {
     Store::new(project).amend(kind, &args.selector, read_json(&args.from)?, &args.expect)
 }
+fn object_input(path: Option<&Path>) -> Result<Value> {
+    let value = match path {
+        Some(path) => read_json(path)?,
+        None => json!({}),
+    };
+    if !value.is_object() {
+        return Err(Error::new("invalid", "input must be a JSON object"));
+    }
+    Ok(value)
+}
+fn retire_patch(args: &Retire) -> Result<Value> {
+    let mut patch = object_input(args.from.as_deref())?;
+    patch["status"] = json!("retired");
+    patch["retired_at"] = json!(store::now());
+    Ok(patch)
+}
 fn retire(project: &Project, kind: &str, args: &Retire) -> Result<Value> {
-    Store::new(project).amend(
-        kind,
-        &args.selector,
-        json!({"status":"retired","retired_at":store::now()}),
-        &args.expect,
-    )
+    Store::new(project).amend(kind, &args.selector, retire_patch(args)?, &args.expect)
+}
+/// A field of an input document, as a flag would have supplied it.
+fn take_string(input: &mut Value, key: &str) -> Result<Option<String>> {
+    match input.as_object_mut().and_then(|map| map.remove(key)) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(text)) => Ok(Some(text)),
+        Some(_) => Err(Error::new("invalid", format!("{key} must be a string"))),
+    }
 }
 
 fn execute(cli: &Cli) -> Result<Value> {
-    if let Command::Init(args) = &cli.command {
-        return project::init_with_context(
-            &args.directory,
-            args.name.as_deref(),
-            &args.timezone,
-            args.id.as_deref(),
-            !args.no_git,
-            args.template.as_deref(),
-            cli.state_dir.as_deref(),
-            cli.host.as_deref(),
-        );
-    }
     if let Command::Interface = &cli.command {
         return Ok(
             json!({"cli_version":accrete::VERSION,"interface_version":1,"project_formats":[1],"document_formats":[1],"index_format":1,
             "binary":"accrete","project_marker":".accrete/project.toml","local_config":".accrete/local.toml","project_environment":"ACCRETE_PROJECT",
-            "template_manifest":"accrete-template.json","template_inventory":".accrete/template-install.json",
             "document_envelope":["format","kind","id","project_id"],"revision":"sha256 of exact published bytes",
             "amendments":"JSON Merge Patch with required --expect; unknown fields retained","stdin":"--from -",
             "output":"--json: one JSON success on stdout; errors on stderr; diagnostics on stderr",
@@ -474,6 +465,7 @@ fn execute(cli: &Cli) -> Result<Value> {
             ModelCommand::Iteration { command } => match command {
                 IterationCommand::Open {
                     model,
+                    from,
                     id,
                     name,
                     purpose,
@@ -481,25 +473,44 @@ fn execute(cli: &Cli) -> Result<Value> {
                     worktree,
                     start,
                     existing,
-                } => models::iteration_open(
-                    &p,
-                    model,
-                    models::OpenOptions {
-                        id: id.clone(),
-                        name: name.clone(),
-                        purpose: purpose.clone(),
-                        branch: branch.clone(),
-                        worktree: worktree.clone(),
-                        start: start.clone(),
-                        existing: *existing,
-                    },
-                ),
+                } => {
+                    let mut input = object_input(from.as_deref())?;
+                    let options = models::OpenOptions {
+                        id: id.clone().or(take_string(&mut input, "id")?),
+                        name: name.clone().or(take_string(&mut input, "name")?),
+                        purpose: purpose.clone().or(take_string(&mut input, "purpose")?),
+                        branch: branch.clone().or(take_string(&mut input, "branch")?),
+                        worktree: worktree
+                            .clone()
+                            .or(take_string(&mut input, "worktree")?.map(PathBuf::from)),
+                        start: start.clone().or(take_string(&mut input, "start")?),
+                        existing: match input.as_object_mut().and_then(|m| m.remove("existing")) {
+                            None | Some(Value::Null) => *existing,
+                            Some(Value::Bool(value)) => *existing || value,
+                            Some(_) => {
+                                return Err(Error::new("invalid", "existing must be a Boolean"));
+                            }
+                        },
+                        extensions: input,
+                    };
+                    models::iteration_open(&p, model, options)
+                }
                 IterationCommand::Close {
                     selector,
+                    from,
                     outcome,
                     commit,
                     expect,
-                } => models::iteration_close(&p, selector, outcome, commit.as_deref(), expect),
+                } => {
+                    let mut input = object_input(from.as_deref())?;
+                    if let Some(outcome) = outcome {
+                        input["outcome"] = json!(outcome);
+                    }
+                    if !commit.is_empty() {
+                        input["commits"] = json!(commit);
+                    }
+                    models::iteration_close(&p, selector, input, expect)
+                }
                 IterationCommand::RemoveWorktree { selector, force } => {
                     models::worktree_remove(&p, selector, *force)
                 }
@@ -534,8 +545,12 @@ fn execute(cli: &Cli) -> Result<Value> {
                 name.as_deref(),
                 destination.as_deref(),
             ),
-            ToolCommand::Refresh { selector } => tools::refresh(&p, selector),
-            ToolCommand::Retire(args) => tools::retire(&p, &args.selector, &args.expect),
+            ToolCommand::Refresh { selector, agent } => {
+                tools::refresh(&p, selector, agent.as_deref())
+            }
+            ToolCommand::Retire(args) => {
+                tools::retire(&p, &args.selector, retire_patch(args)?, &args.expect)
+            }
             ToolCommand::Export { selector, to } => tools::export(&p, selector, to),
         },
         Command::Data { command } => match command {
@@ -694,11 +709,11 @@ fn execute(cli: &Cli) -> Result<Value> {
             let publication = store::recover_publications(&p)?;
             Ok(json!({"data":data,"worktrees":models,"publications":publication}))
         }
-        Command::Migrate { from, dry_run } => accrete::migration::migrate(&p, from, *dry_run),
-        Command::Project {
-            command: ProjectCommand::Upgrade { from, dry_run },
-        } => project::upgrade(&p, from, *dry_run),
-        Command::Init(_) | Command::Interface => unreachable!(),
+        Command::Migrate { from, dry_run } => match from {
+            Some(from) => accrete::migration::migrate(&p, from, *dry_run),
+            None => Ok(accrete::migration::current(&p, *dry_run)),
+        },
+        Command::Interface => unreachable!(),
     }
 }
 

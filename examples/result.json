@@ -21,6 +21,7 @@
     }
   ],
   "outputs": [],
+  "execution": {},
   "observations": [
     {
       "text": "Execution revision and runtime measurements are deliberately unspecified in this example."

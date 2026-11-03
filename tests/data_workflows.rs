@@ -82,6 +82,37 @@ fn two_data_identities_can_share_bytes_and_only_managed_replica_is_evicted() {
 }
 
 #[test]
+fn eviction_selects_a_location_by_id_or_name_and_refuses_an_ambiguous_name() {
+    let (_temp, project) = project();
+    let source = project.root.join("input.nc");
+    fs::write(&source, b"bytes\n").unwrap();
+    data::register(&project, json!({"id":"one"}), Some(&source), None, false).unwrap();
+    let replica = data::materialize(&project, "one", "working", None, None).unwrap();
+    let stored = Store::new(&project).read("data", "one").unwrap();
+    // A second current location with the same name, as a merge could produce.
+    let mut doc = stored.doc.clone();
+    let mut duplicate = replica["location"].clone();
+    duplicate["id"] = json!("another-location");
+    doc["locations"].as_array_mut().unwrap().push(duplicate);
+    fs::write(&stored.path, serde_json::to_vec(&doc).unwrap()).unwrap();
+    assert_eq!(
+        data::evict(&project, "one", "working", None)
+            .unwrap_err()
+            .kind,
+        "conflict"
+    );
+    assert_eq!(
+        data::evict(&project, "one", "unknown", None)
+            .unwrap_err()
+            .kind,
+        "invalid"
+    );
+    fs::write(&stored.path, serde_json::to_vec(&stored.doc).unwrap()).unwrap();
+    let evicted = data::evict(&project, "one", "working", None).unwrap();
+    assert_eq!(evicted["evicted_location"], replica["location"]["id"]);
+}
+
+#[test]
 fn directory_registration_is_metadata_only_and_materialization_preserves_tree() {
     let (_temp, project) = project();
     let source = project.root.join("native.zarr");

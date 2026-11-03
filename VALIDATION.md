@@ -5,6 +5,11 @@ Node **24.22.1**, npm **11.9.0**, and Git **2.51.1**. The checks use temporary
 projects, ordinary Git repositories and small synthetic files. No historical
 scientific computation was launched.
 
+The sections down to "Boundaries of these results" describe that earlier Linux delivery,
+whose Kernel still held project initialization, and its artifacts. The current boundary is
+covered under [Workspace boundary](#workspace-boundary). Those artifacts are no longer in
+the working tree.
+
 ## Native implementation
 
 `cargo test --locked` completed with **23 passing integration tests**, zero
@@ -82,11 +87,41 @@ conditions. They do not establish power-loss durability across every filesystem
 or concurrent multi-host writes. The documented contract requires host-local
 state and a single writing host per shared metadata view.
 
-Template behavior was exercised with small declared asset fixtures. The
-independent `accrete-template` repository was not accessed or integrated. The
-versioned manifest/CLI/document interfaces are the integration deliverable.
-
 Schema JSON files parse and their examples follow the implementation conventions;
 external JSON Schema-validator coverage is not claimed. Migration was exercised
 on representative original-scaffold metadata, without accessing live historical
 repositories or remote scientific payloads.
+
+## Workspace boundary
+
+Rerun on macOS arm64 with Rust 1.90.0 and Node 24.13.1 after moving Workspace creation
+to the `accrete-kit` generator. `cargo test --locked` passed 33 integration tests with no
+failures (CLI workflows 13, Data and migration 6, persistence 8, Workspace resolution 6),
+and `cargo fmt --all --check` passed. Tests of template installation and upgrade moved to
+`accrete-template` with the code they cover.
+
+The release binary was run from directories holding only a hand-written
+`.accrete/project.toml`, once with `format` and `project_id` alone and once with `name`,
+`timezone`, `[paths]` and `[locations.working]` as well:
+
+- `config resolve` found the Workspace from the working directory and wrote nothing.
+- `result record` and `memory append --result` returned `committed:true`,
+  `durability:"durable"` and `index_pending:false`.
+- `index refresh`, run from a nested directory, reported both objects, and
+  `sqlite3 -readonly` read the Memory entry's link to the Result.
+- `results/`, `memory/` and the host-local view directory appeared only when first used.
+- On the two-line marker, with no Git repository, `tool admit`, `tool expose`, `data
+  register` and `data materialize --to working` also completed.
+- Outside a Workspace, the ancestor search, `--project` and `ACCRETE_PROJECT` each exited 3
+  with a message naming `npx accrete-kit@latest create`. `init` and `project` are rejected as unknown
+  subcommands, exit 2.
+
+`package-release.mjs` built `accrete-0.1.0-aarch64-apple-darwin.tar.gz` on this Mac, holding
+`accrete`, `LICENSE`, `THIRD-PARTY-NOTICES`, `licenses/` and `release.json` under one
+directory, and `SHA256SUMS` verified it with `shasum -a 256 -c`. Extracted into
+`.accrete/bin/` beside a two-line marker, the binary recorded a Result and ran `index refresh`,
+both from the Workspace root and, with `--project`, from outside it.
+
+Not exercised here: the CI and release workflows themselves, including GitHub Release
+uploads, the Linux and macOS Intel targets, and a Workspace written by the generator rather
+than by hand.
